@@ -1,0 +1,11 @@
+streamlit
+ultralytics
+opencv-python-headless
+numpy
+pandas
+pillow
+qrcode
+altair
+fpdf
+flask
+paho-mqtt
