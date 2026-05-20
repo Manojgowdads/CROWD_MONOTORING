@@ -192,7 +192,7 @@ else:
     conf_threshold = st.sidebar.slider("Confidence Threshold", 0.1, 1.0, 0.3, 0.05)
     max_capacity = st.sidebar.number_input("Max Capacity Limit", min_value=1, max_value=1000, value=30, step=1)
     
-    app_mode = st.sidebar.radio("Input Mode", ["Image", "Video", "Live WebCam", "Multi-Camera Split", "Data Logs", "Mobile Access"])
+    app_mode = st.sidebar.radio("Input Mode", ["Image", "Video", "Desktop Camera (Local/Fast)", "Mobile Camera (Cloud/WebRTC)", "Multi-Camera Split", "Data Logs", "Mobile Access"])
 
     st.sidebar.markdown("---")
     st.sidebar.header("Stand-Out Features V6")
@@ -331,16 +331,20 @@ else:
                 cap1.release()
                 cap2.release()
 
-    elif app_mode == "Video":
-        st.header("Video Analysis")
+    elif app_mode in ["Video", "Desktop Camera (Local/Fast)"]:
+        st.header(f"{app_mode} Analysis")
         
         cap = None
-        uploaded_file = st.file_uploader("Upload Video", type=["mp4", "avi"])
-        if uploaded_file is not None:
-            tfile = tempfile.NamedTemporaryFile(delete=False) 
-            tfile.write(uploaded_file.read())
-            if st.button("Start Analysis"):
-                cap = cv2.VideoCapture(tfile.name)
+        if app_mode == "Video":
+            uploaded_file = st.file_uploader("Upload Video", type=["mp4", "avi"])
+            if uploaded_file is not None:
+                tfile = tempfile.NamedTemporaryFile(delete=False) 
+                tfile.write(uploaded_file.read())
+                if st.button("Start Analysis"):
+                    cap = cv2.VideoCapture(tfile.name)
+        elif app_mode == "Desktop Camera (Local/Fast)":
+            if st.checkbox("Run Webcam"):
+                cap = cv2.VideoCapture(0)
 
         if cap is not None:
             col1, col2 = st.columns([2, 1])
@@ -432,8 +436,8 @@ else:
                         
             cap.release()
 
-    elif app_mode == "Live WebCam":
-        st.header("📱 Mobile-Ready Live WebCam")
+    elif app_mode == "Mobile Camera (Cloud/WebRTC)":
+        st.header("📱 Mobile Camera (Cloud WebRTC)")
         st.info("Ensure you are accessing this via HTTPS and grant camera permissions.")
 
         col1, col2 = st.columns([2, 1])
