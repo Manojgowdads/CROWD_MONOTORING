@@ -1,13 +1,20 @@
 import os
-try:
-    import cv2
-except ImportError:
-    print("Fixing OpenCV headless dependency for Streamlit Cloud...")
-    os.system("pip uninstall -y opencv-python opencv-python-headless")
-    os.system("pip install opencv-python-headless")
-    import cv2
+import subprocess
+
+def fix_opencv():
+    try:
+        result = subprocess.run(['pip', 'show', 'opencv-python'], capture_output=True, text=True)
+        if "Name: opencv-python" in result.stdout:
+            subprocess.run(['pip', 'uninstall', '-y', 'opencv-python'])
+            subprocess.run(['pip', 'install', 'opencv-python-headless'])
+    except Exception:
+        pass
+
+fix_opencv()
+
 
 import streamlit as st
+import cv2
 import numpy as np
 from PIL import Image
 import tempfile
