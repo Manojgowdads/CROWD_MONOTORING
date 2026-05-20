@@ -11,4 +11,3 @@ flask
 paho-mqtt
 bcrypt
 streamlit-webrtc
-av

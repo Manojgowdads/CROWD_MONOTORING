@@ -1,19 +1,14 @@
-import sys
-import subprocess
-
-def ensure_opencv():
-    # Test importing cv2 in a separate process so we don't corrupt the main memory cache if it fails
-    result = subprocess.run([sys.executable, "-c", "import cv2"], capture_output=True)
-    if result.returncode != 0:
-        print("OpenCV import failed. Fixing dependencies automatically...")
-        subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "opencv-python", "opencv-python-headless"], check=False)
-        subprocess.run([sys.executable, "-m", "pip", "install", "opencv-python-headless==4.8.0.74"], check=False)
-
-ensure_opencv()
-
 
 import streamlit as st
-import cv2
+import sys
+try:
+    import cv2
+except ImportError as e:
+    st.error("🚨 OpenCV Installation Error 🚨")
+    st.error(f"Exact Error: `{str(e)}`")
+    st.info("Please take a screenshot of this error and send it to me. This will tell me exactly which Linux library Streamlit Cloud is missing.")
+    st.stop()
+
 import numpy as np
 from PIL import Image
 import tempfile
