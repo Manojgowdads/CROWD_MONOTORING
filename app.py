@@ -1,16 +1,15 @@
-import os
+import sys
 import subprocess
 
-def fix_opencv():
-    try:
-        result = subprocess.run(['pip', 'show', 'opencv-python'], capture_output=True, text=True)
-        if "Name: opencv-python" in result.stdout:
-            subprocess.run(['pip', 'uninstall', '-y', 'opencv-python'])
-            subprocess.run(['pip', 'install', 'opencv-python-headless'])
-    except Exception:
-        pass
+def ensure_opencv():
+    # Test importing cv2 in a separate process so we don't corrupt the main memory cache if it fails
+    result = subprocess.run([sys.executable, "-c", "import cv2"], capture_output=True)
+    if result.returncode != 0:
+        print("OpenCV import failed. Fixing dependencies automatically...")
+        subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "opencv-python", "opencv-python-headless"], check=False)
+        subprocess.run([sys.executable, "-m", "pip", "install", "opencv-python-headless==4.8.0.74"], check=False)
 
-fix_opencv()
+ensure_opencv()
 
 
 import streamlit as st
