@@ -1,5 +1,13 @@
+import os
+try:
+    import cv2
+except ImportError:
+    print("Fixing OpenCV headless dependency for Streamlit Cloud...")
+    os.system("pip uninstall -y opencv-python opencv-python-headless")
+    os.system("pip install opencv-python-headless")
+    import cv2
+
 import streamlit as st
-import cv2
 import numpy as np
 from PIL import Image
 import tempfile
