@@ -13,6 +13,9 @@ import threading
 from flask import Flask, jsonify
 import paho.mqtt.publish as mqtt_publish
 import json
+import av
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+
 
 from utils import load_model, process_image, process_advanced_frame, determine_crowd_density, TrackerState, send_alert_notification
 from database import log_data, get_all_data_as_df, register_user, verify_user, get_all_users_as_df
@@ -328,20 +331,16 @@ else:
                 cap1.release()
                 cap2.release()
 
-    elif app_mode in ["Video", "Live WebCam"]:
-        st.header(f"{app_mode} Analysis")
+    elif app_mode == "Video":
+        st.header("Video Analysis")
         
         cap = None
-        if app_mode == "Video":
-            uploaded_file = st.file_uploader("Upload Video", type=["mp4", "avi"])
-            if uploaded_file is not None:
-                tfile = tempfile.NamedTemporaryFile(delete=False) 
-                tfile.write(uploaded_file.read())
-                if st.button("Start Analysis"):
-                    cap = cv2.VideoCapture(tfile.name)
-        elif app_mode == "Live WebCam":
-            if st.checkbox("Run Webcam"):
-                cap = cv2.VideoCapture(0)
+        uploaded_file = st.file_uploader("Upload Video", type=["mp4", "avi"])
+        if uploaded_file is not None:
+            tfile = tempfile.NamedTemporaryFile(delete=False) 
+            tfile.write(uploaded_file.read())
+            if st.button("Start Analysis"):
+                cap = cv2.VideoCapture(tfile.name)
 
         if cap is not None:
             col1, col2 = st.columns([2, 1])
@@ -360,7 +359,6 @@ else:
                 ret, frame = cap.read()
                 if not ret: break
                 
-                # Resize frame to significantly speed up AI processing
                 frame = cv2.resize(frame, (640, 480))
                 
                 annotated_frame, count, tracker_state, is_loitering, is_panic, minimap_img = process_advanced_frame(
@@ -371,10 +369,9 @@ else:
                 )
                 density = determine_crowd_density(count, max_capacity)
                 
-                # Update Global API State & Actuation
                 is_breach = False
                 if enable_zone and count > 0:
-                    is_breach = True # simplified actuation logic: any detection inside zone locks doors
+                    is_breach = True
                 
                 actuation_status = "DOORS SECURELY LOCKED" if (is_panic or is_breach or density == "High") else "DOORS UNLOCKED"
                 actuation_class = "locked" if actuation_status == "DOORS SECURELY LOCKED" else "unlocked"
@@ -384,10 +381,9 @@ else:
                 elif is_loitering: alert_msg = "LOITERING DETECTED"
                 elif density == "High": alert_msg = "HIGH DENSITY"
 
-                # Trigger buzzer for maximum capacity or overload (High Density)
                 if count >= max_capacity or density == "High":
                     current_time = time.time()
-                    if current_time - last_buzzer_time > 1.0: # Prevent overlapping beeps
+                    if current_time - last_buzzer_time > 1.0:
                         ring_buzzer()
                         last_buzzer_time = current_time
                 
@@ -396,11 +392,9 @@ else:
                 api_state["actuation"] = actuation_status
                 api_state["alert"] = alert_msg
 
-                # MQTT Telemetry (publish every 15 frames to prevent flooding)
                 if enable_mqtt and frame_count % 15 == 0:
                     publish_telemetry(api_state)
 
-                # Alerts
                 if enable_email_alerts:
                     current_time = time.time()
                     if alert_msg and (current_time - tracker_state.last_email_sent > 30):
@@ -411,7 +405,6 @@ else:
                 if enable_logging and frame_count % 10 == 0:
                     log_data(count, density)
                 
-                # Skip UI rendering for some frames to prevent Streamlit from lagging
                 if frame_count % 2 == 0:
                     annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
                     stframe.image(annotated_frame, use_column_width=True)
@@ -428,7 +421,6 @@ else:
                         if is_panic:
                             st.error("🏃‍♂️🚨 PANIC DETECTED!")
                     
-                    # Actuation UI
                     actuation_placeholder.markdown(f'<div class="actuation-box {actuation_class}">🔒 IoT ACTUATION:<br>{actuation_status}</div>', unsafe_allow_html=True)
                     
                     if enable_birdseye and minimap_img is not None:
@@ -439,6 +431,131 @@ else:
                 frame_count += 1
                         
             cap.release()
+
+    elif app_mode == "Live WebCam":
+        st.header("📱 Mobile-Ready Live WebCam")
+        st.info("Ensure you are accessing this via HTTPS and grant camera permissions.")
+
+        col1, col2 = st.columns([2, 1])
+        with col2:
+            metric_placeholder = st.empty()
+            actuation_placeholder = st.empty()
+            radar_placeholder = st.empty()
+
+        class WebRTCProcessor:
+            def __init__(self):
+                self.tracker_state = TrackerState()
+                self.frame_count = 0
+                self.last_buzzer_time = 0
+                
+                self.conf_threshold = 0.3
+                self.enable_heatmap = False
+                self.enable_zone = False
+                self.enable_proximity = False
+                self.enable_crossing = False
+                self.enable_loitering = False
+                self.enable_panic = False
+                self.enable_gender = False
+                self.enable_birdseye = False
+                self.enable_evacuation = False
+                self.max_capacity = 30
+                
+                self.count = 0
+                self.density = "Low"
+                self.actuation_status = "DOORS UNLOCKED"
+                self.is_loitering = False
+                self.is_panic = False
+                self.minimap_img = None
+
+            def recv(self, frame):
+                img = frame.to_ndarray(format="bgr24")
+                img = cv2.resize(img, (640, 480))
+                
+                annotated_frame, self.count, self.tracker_state, self.is_loitering, self.is_panic, self.minimap_img = process_advanced_frame(
+                    model, img, self.tracker_state, self.conf_threshold,
+                    self.enable_heatmap, self.enable_zone, self.enable_proximity,
+                    self.enable_crossing, self.enable_loitering, self.enable_panic, self.enable_gender, self.enable_birdseye, self.enable_evacuation,
+                    sample_zone, sample_crossing_line
+                )
+                
+                self.density = determine_crowd_density(self.count, self.max_capacity)
+                
+                is_breach = False
+                if self.enable_zone and self.count > 0:
+                    is_breach = True
+                    
+                self.actuation_status = "DOORS SECURELY LOCKED" if (self.is_panic or is_breach or self.density == "High") else "DOORS UNLOCKED"
+                
+                api_state["count"] = self.count
+                api_state["density"] = self.density
+                api_state["actuation"] = self.actuation_status
+                
+                alert_msg = None
+                if self.is_panic: alert_msg = "PANIC DETECTED"
+                elif self.is_loitering: alert_msg = "LOITERING DETECTED"
+                elif self.density == "High": alert_msg = "HIGH DENSITY"
+                api_state["alert"] = alert_msg
+                
+                if self.count >= self.max_capacity or self.density == "High":
+                    current_time = time.time()
+                    if current_time - self.last_buzzer_time > 1.0:
+                        ring_buzzer()
+                        self.last_buzzer_time = current_time
+
+                if enable_mqtt and self.frame_count % 15 == 0:
+                    publish_telemetry(api_state)
+
+                if enable_logging and self.frame_count % 10 == 0:
+                    log_data(self.count, self.density)
+                    
+                self.frame_count += 1
+                
+                # Burn basic metrics onto frame for zero-lag mobile feedback
+                cv2.putText(annotated_frame, f"Count: {self.count} | Density: {self.density}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                
+                return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
+
+        with col1:
+            webrtc_ctx = webrtc_streamer(
+                key="crowd-monitor-mobile",
+                mode=WebRtcMode.SENDRECV,
+                rtc_configuration=RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}),
+                video_processor_factory=WebRTCProcessor,
+                media_stream_constraints={"video": True, "audio": False},
+                async_processing=True,
+            )
+
+        if webrtc_ctx.video_processor:
+            webrtc_ctx.video_processor.conf_threshold = conf_threshold
+            webrtc_ctx.video_processor.enable_heatmap = enable_heatmap
+            webrtc_ctx.video_processor.enable_zone = enable_zone
+            webrtc_ctx.video_processor.enable_proximity = enable_proximity
+            webrtc_ctx.video_processor.enable_crossing = enable_crossing
+            webrtc_ctx.video_processor.enable_loitering = enable_loitering
+            webrtc_ctx.video_processor.enable_panic = enable_panic
+            webrtc_ctx.video_processor.enable_gender = enable_gender
+            webrtc_ctx.video_processor.enable_birdseye = enable_birdseye
+            webrtc_ctx.video_processor.enable_evacuation = enable_evacuation
+            webrtc_ctx.video_processor.max_capacity = max_capacity
+            
+            with metric_placeholder.container():
+                st.metric(label="Current Count", value=webrtc_ctx.video_processor.count)
+                density_color = "🟢" if webrtc_ctx.video_processor.density == "Low" else "🟡" if webrtc_ctx.video_processor.density == "Medium" else "🔴"
+                st.metric(label="Density", value=f"{density_color} {webrtc_ctx.video_processor.density}")
+                if enable_crossing:
+                    st.metric(label="Footfall IN", value=len(webrtc_ctx.video_processor.tracker_state.crossed_in))
+                    st.metric(label="Footfall OUT", value=len(webrtc_ctx.video_processor.tracker_state.crossed_out))
+                if webrtc_ctx.video_processor.is_loitering:
+                    st.error("🚨 Loitering Detected!")
+                if webrtc_ctx.video_processor.is_panic:
+                    st.error("🏃‍♂️🚨 PANIC DETECTED!")
+            
+            actuation_class = "locked" if webrtc_ctx.video_processor.actuation_status == "DOORS SECURELY LOCKED" else "unlocked"
+            actuation_placeholder.markdown(f'<div class="actuation-box {actuation_class}">🔒 IoT ACTUATION:<br>{webrtc_ctx.video_processor.actuation_status}</div>', unsafe_allow_html=True)
+            
+            if enable_birdseye and webrtc_ctx.video_processor.minimap_img is not None:
+                radar_placeholder.image(webrtc_ctx.video_processor.minimap_img, use_column_width=True)
+
             
     elif app_mode == "Image":
         st.header("Image Analysis")
