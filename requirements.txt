@@ -9,3 +9,4 @@ altair
 fpdf
 flask
 paho-mqtt
+bcrypt
