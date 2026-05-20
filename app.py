@@ -472,52 +472,64 @@ else:
                 self.minimap_img = None
 
             def recv(self, frame):
-                img = frame.to_ndarray(format="bgr24")
-                img = cv2.resize(img, (640, 480))
-                
-                annotated_frame, self.count, self.tracker_state, self.is_loitering, self.is_panic, self.minimap_img = process_advanced_frame(
-                    model, img, self.tracker_state, self.conf_threshold,
-                    self.enable_heatmap, self.enable_zone, self.enable_proximity,
-                    self.enable_crossing, self.enable_loitering, self.enable_panic, self.enable_gender, self.enable_birdseye, self.enable_evacuation,
-                    sample_zone, sample_crossing_line
-                )
-                
-                self.density = determine_crowd_density(self.count, self.max_capacity)
-                
-                is_breach = False
-                if self.enable_zone and self.count > 0:
-                    is_breach = True
+                try:
+                    img = frame.to_ndarray(format="bgr24")
+                    # Downsize aggressively to prevent Streamlit Cloud CPU from freezing
+                    small_img = cv2.resize(img, (320, 240))
                     
-                self.actuation_status = "DOORS SECURELY LOCKED" if (self.is_panic or is_breach or self.density == "High") else "DOORS UNLOCKED"
-                
-                api_state["count"] = self.count
-                api_state["density"] = self.density
-                api_state["actuation"] = self.actuation_status
-                
-                alert_msg = None
-                if self.is_panic: alert_msg = "PANIC DETECTED"
-                elif self.is_loitering: alert_msg = "LOITERING DETECTED"
-                elif self.density == "High": alert_msg = "HIGH DENSITY"
-                api_state["alert"] = alert_msg
-                
-                if self.count >= self.max_capacity or self.density == "High":
-                    current_time = time.time()
-                    if current_time - self.last_buzzer_time > 1.0:
-                        ring_buzzer()
-                        self.last_buzzer_time = current_time
-
-                if enable_mqtt and self.frame_count % 15 == 0:
-                    publish_telemetry(api_state)
-
-                if enable_logging and self.frame_count % 10 == 0:
-                    log_data(self.count, self.density)
+                    annotated_small, self.count, self.tracker_state, self.is_loitering, self.is_panic, self.minimap_img = process_advanced_frame(
+                        model, small_img, self.tracker_state, self.conf_threshold,
+                        self.enable_heatmap, self.enable_zone, self.enable_proximity,
+                        self.enable_crossing, self.enable_loitering, self.enable_panic, self.enable_gender, self.enable_birdseye, self.enable_evacuation,
+                        sample_zone, sample_crossing_line
+                    )
                     
-                self.frame_count += 1
-                
-                # Burn basic metrics onto frame for zero-lag mobile feedback
-                cv2.putText(annotated_frame, f"Count: {self.count} | Density: {self.density}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-                
-                return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
+                    # Resize back to 640x480 for mobile viewing
+                    annotated_frame = cv2.resize(annotated_small, (640, 480))
+                    
+                    self.density = determine_crowd_density(self.count, self.max_capacity)
+                    
+                    is_breach = False
+                    if self.enable_zone and self.count > 0:
+                        is_breach = True
+                        
+                    self.actuation_status = "DOORS SECURELY LOCKED" if (self.is_panic or is_breach or self.density == "High") else "DOORS UNLOCKED"
+                    
+                    api_state["count"] = self.count
+                    api_state["density"] = self.density
+                    api_state["actuation"] = self.actuation_status
+                    
+                    alert_msg = None
+                    if self.is_panic: alert_msg = "PANIC DETECTED"
+                    elif self.is_loitering: alert_msg = "LOITERING DETECTED"
+                    elif self.density == "High": alert_msg = "HIGH DENSITY"
+                    api_state["alert"] = alert_msg
+                    
+                    if self.count >= self.max_capacity or self.density == "High":
+                        current_time = time.time()
+                        if current_time - self.last_buzzer_time > 1.0:
+                            ring_buzzer()
+                            self.last_buzzer_time = current_time
+
+                    try:
+                        if enable_mqtt and self.frame_count % 15 == 0:
+                            publish_telemetry(api_state)
+
+                        if enable_logging and self.frame_count % 30 == 0: # Reduced logging frequency to prevent DB locks
+                            log_data(self.count, self.density)
+                    except Exception as e:
+                        print(f"Background Task Error: {e}")
+                        
+                    self.frame_count += 1
+                    
+                    # Burn basic metrics onto frame for zero-lag mobile feedback
+                    cv2.putText(annotated_frame, f"Count: {self.count} | Density: {self.density}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                    
+                    return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
+                except Exception as e:
+                    print(f"WebRTC Recv Error: {e}")
+                    # If it crashes, just return the original frame so it doesn't freeze permanently!
+                    return frame
 
         with col1:
             webrtc_ctx = webrtc_streamer(
