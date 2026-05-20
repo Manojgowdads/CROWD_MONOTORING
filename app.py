@@ -535,7 +535,7 @@ else:
             webrtc_ctx = webrtc_streamer(
                 key="crowd-monitor-mobile",
                 mode=WebRtcMode.SENDRECV,
-                rtc_configuration=RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}),
+                rtc_configuration=RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302", "stun:stun2.l.google.com:19302", "stun:stun.stunprotocol.org:3478", "stun:stun.voipstunt.com"]}]}),
                 video_processor_factory=WebRTCProcessor,
                 media_stream_constraints={"video": True, "audio": False},
                 async_processing=True,
