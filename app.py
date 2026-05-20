@@ -1,14 +1,5 @@
-
 import streamlit as st
-import sys
-try:
-    import cv2
-except ImportError as e:
-    st.error("🚨 OpenCV Installation Error 🚨")
-    st.error(f"Exact Error: `{str(e)}`")
-    st.info("Please take a screenshot of this error and send it to me. This will tell me exactly which Linux library Streamlit Cloud is missing.")
-    st.stop()
-
+import cv2
 import numpy as np
 from PIL import Image
 import tempfile
